@@ -1,8 +1,7 @@
 import logging
 import pytest
 
-from pyspark import SparkConf
-from pyspark import SparkContext
+from pyspark.sql import SparkSession
 
 def quiet_logging():
     """ Disable logging INFO for test """
@@ -13,10 +12,9 @@ def quiet_logging():
 
 def spark_context(request):
     """ Set up a local spark session """
-    conf = (SparkConf().setMaster("local[2]").setAppName("unittest"))
-    request.addfinalizer(lambda: sc.stop())
-    sc = SparkContext(conf=conf)
+    spark = SparkSession.builder.master("local[*]").appName('unittest').getOrCreate()
+    request.addfinalizer(lambda: spark.stop())
 
     quiet_logging()
 
-    return sc
+    return spark
