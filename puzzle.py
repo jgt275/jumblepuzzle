@@ -7,40 +7,63 @@ from pyspark.sql import functions as f
 from pyspark.sql import types as t
 
 from collections import Counter
-from operator import getitem, add
-from functools import reduce
-
 
 scriptDir = os.path.dirname(os.path.realpath(__file__))
 
+#Setting a starting threshold frequency while finding likely phrase
+threshold_freq = 2000
+
 def read_json(file):
     """ Function to load json file """
+    """ Argument: 
+        file - json file
+    """
+    
     with open(file,'r') as json_file:
         return json.load(json_file)
 
 #Load word frequency
 word_freq = read_json(scriptDir + "/input/freq_dict.json")
 
+def get_letter_counter(word, removechar=''):
+    """ Function to return letter to frequency map """
+    """ Arguments:
+        word - string of letters
+        removechar - char to be removed from word, default ''
+    """
+    
+    return Counter(word.replace(removechar,''))
+
 
 def find_anagrams(jumbled_word, word_freq_dict=word_freq):
     """ Function to return list of possible anagrams extracted from dictionary of words """
+    """ Arguments:
+        jumbled_word - jumbled string
+        word_freq_dict - dictionary of words as key and frequency as values 
+    """
     """ Dictionary of words will be subset to only the words that match the length of jumbled word """
     """ List of possible anagrams will be returned by doing a dictionary match of word map on following criteria:
             - The same set of letters appears at same frequency
     """
+    
     anagrams=[]
     word_len = len(jumbled_word)
     jumbled_word_lowercase = jumbled_word.lower()
     freq_dict_subset = {k:v for k,v in word_freq_dict.items() if len(k) == word_len}
     for word in freq_dict_subset:
         word_lowercase = word.lower()
-        if (word_lowercase != jumbled_word_lowercase) and (Counter(jumbled_word_lowercase) == Counter(word_lowercase)):
+        if (word_lowercase != jumbled_word_lowercase) and (get_letter_counter(jumbled_word_lowercase) == get_letter_counter(word_lowercase)):
             anagrams.append(word)
     return anagrams
 
 
 def get_position_letters(wordlist, circled_pos):
     """ Function to return list of letters extracted from circled positions across all possible anagrams """
+    """ Arguments:
+        wordlist - list of words
+        circled_pos - list of integers
+    """
+    
     circled_list = []
     for word in wordlist:
         lst = ''.join([word[i] for i in (circled_pos)])
@@ -48,20 +71,30 @@ def get_position_letters(wordlist, circled_pos):
     return circled_list
 
 
-def cartesian_word_join(wordlist):
+def cartesian_word_join(wordlist, sep=''):
     """ Function to do a cartesian join between elements of multiple lists """
+    """ Arguments:
+        wordlist - list of lists
+        sep - separator character, default:''
+    """
+    
     word_join = []
     for w in itertools.product(*wordlist):
-        word_join.append(''.join(w))
+        word_join.append(sep.join(w))
     return word_join
 
 
 def find_likely_anagram(jumbled_word, word_freq_dict=word_freq):
     """ Function to find the most likely anagram by returning the lowest frequency """
+    """ Arguments:
+        jumbled_word - jumbled string
+        word_freq_dict - dictionary of words as key and frequency as values 
+    """
     """ If only one anagram found return it else find the one with the least frequency
-            (1=most   frequent,   9887=least   frequent,   0=not   scored   due   to infrequency  of use
+            (1=most   frequent,   9887=least   frequent,   0=not   scored   due   to infrequency  of use)
     """
     """ Note: If multiple anagrams with the least frequency, only the first one is returned """
+    
     all_anagrams = find_anagrams(jumbled_word, word_freq_dict)
     if len(all_anagrams)==1:
         return all_anagrams
@@ -78,46 +111,83 @@ def find_likely_anagram(jumbled_word, word_freq_dict=word_freq):
             return [min(freq_dict_subset, key=freq_dict_subset.get)]
 
 
-def cartesian_dictionary_join(result, *args):
-    """ Function to return cartesian join between keys of dictionaries and apply operation on their values """
-    return { '-'.join(ks) : reduce(add, itertools.starmap(getitem,zip(args,ks))) for ks in itertools.product(*args) }
-
-
-def find_phrase(jumbled_word, phrase_word_length, threshold_freq):
+def find_phrase(jumbled_word, phrase_word_length, threshold_freq=threshold_freq, word_freq_dict=word_freq):
     """ Function to get combination of final phrases along with their combined frequency """
-    #Get total length of phrase
-    phrase_length = sum(phrase_word_length)
-
-    #Generate word permutations of only lengths as that of phrase
-    perm = itertools.permutations(jumbled_word, phrase_length)
-    perm_list = []
-    #Set operator drops any duplicates that occur with the same letter being interchangbly in different positions
-    for i in set(perm):
-        perm_list.append(''.join(i))
-
-    key_index = 1
-
+    """ Arguments:
+        jumbled_word - jumbled string
+        phrase_word_length - list of integers representing lenght of words in phrase
+        threshold_freq - a threshold frequency whole number
+        word_freq_dict - dictionary of words as key and frequency as values 
+    """
+    
+    list_of_phrases = []
+    jumbled_word_str = jumbled_word[0]
     #Loop through each phrase word length
     for i in phrase_word_length:
-        beg_pos = 0
-        #Subsetting frequency dictionary to only words that match length of phrase word and below the defined threshold frequency
-        word_freq_subset = {key:val for key,val in word_freq.items() if len(key)==i and 0<val<=threshold_freq}
-        phrase_word_dict = {}
+        
+        perm_list = []
+        #Generate word permutations of only lengths as that of phrase word
+        #Set operator drops any duplicates that occur with the same letter being interchangbly in different positions
+        for word in set(itertools.permutations(jumbled_word_str,i)):
+            #List of all permutations
+            perm_list.append(''.join(word))
+            
+        word_phrase_by_length = []
+        
+        #Continue loop till a non empty list is returned
+        while(len(word_phrase_by_length)==0):
+            #Subsetting frequency dictionary to only words that match length of phrase word and below the defined threshold frequency
+            word_freq_subset_list = [key for key,val in word_freq_dict.items() if len(key)==i and 0<val<=threshold_freq]
+            
+            #Perform intersection to retrieve elements that is present in both sets
+            for element in set(perm_list).intersection(set(word_freq_subset_list)):
+                word_phrase_by_length.append(element)
+            
+            #If no matching words were returned within the threshold, raise the threshold frequency and continue till match found
+            if len(word_phrase_by_length) == 0:
+                threshold_freq+= 1000
+           
+        #Create a list of phrase word lists
+        list_of_phrases.append(word_phrase_by_length) 
+        
+    #perform a cartesian join to obtain different combination of phrase words
+    phrase_list_combo = cartesian_word_join(list_of_phrases,sep='-')
+    
+    #Retain phrases whose letter map matches to the original jumbled phrase word
+    final_phrase_list = []
+    for w in phrase_list_combo:
+        if get_letter_counter(w, removechar='-')==get_letter_counter(jumbled_word_str):
+            final_phrase_list.append(w)
 
-        #Split each permutation word based on the position as the phrase word length
-        #Check if the word existis in the frequency dictionary, if so return the frequency
-        for words in perm_list:
-            split_word = words[beg_pos:beg_pos+i]
-            if split_word in word_freq_subset:
-                phrase_word_dict[split_word] = word_freq_subset[split_word]
+    result = find_likely_phrase(final_phrase_list, word_freq_dict)
+    return result
 
-        #Create a nested dictionary of dictionary map of phrase words and frequency
-        if key_index==1:
-            arg = phrase_word_dict
-        else:
-            arg = arg,phrase_word_dict
-        key_index+= 1
-    return
+    
+def find_likely_phrase(list_of_phrases, word_freq_dict=word_freq):
+    """ Function to return the likely final phrase(s) """
+    """ Arguments:
+        list_of_phrases - list of words
+        word_freq_dict - dictionary of words as key and frequency as values
+    """
+    
+    #If only one likely phrase, return it
+    if len(list_of_phrases)==1:
+        return list_of_phrases
+    
+    #if more than one likely phrase, get the phrase(s) with minimum frequency
+    elif len(list_of_phrases)>1:
+        total_phrase_freq = {}
+        
+        for lst in list_of_phrases:
+            get_phrase_freq = {k:v for k,v in word_freq_dict.items() if k in lst.split('-')}
+            total_phrase_freq[lst] = sum(get_phrase_freq.values())
+        
+
+        min_freq = min(total_phrase_freq.values())
+        phrases_with_minfreq = [k for k in total_phrase_freq if total_phrase_freq[k]==min_freq]
+        return phrases_with_minfreq
+    else:
+        return []
 
 
 if __name__=="__main__":
@@ -148,14 +218,20 @@ if __name__=="__main__":
     #Join the extracted letters from individual puzzles to create jumbled word for final puzzle
     cartesian_word_join_func = f.udf(cartesian_word_join, t.ArrayType(t.StringType()))
     puzzle_df = puzzle_df.select('*', cartesian_word_join_func(f.col('circled_letters_list')).alias('final_phrase_jumbled_letters'))
+    
+    #Get likely final phrase(s)
+    likely_phrase = f.udf(find_phrase, t.ArrayType(t.StringType()))
+    puzzle_df = puzzle_df.select('*' \
+                                 ,likely_phrase(f.col('final_phrase_jumbled_letters') \
+                                                 ,f.col('final_word_letters') \
+                                                 ).alias('likely_final_phrases'))
 
-    #Print results
+    #Write results
     for row in puzzle_df.rdd.collect():
-        print(">>>>> RESULT: for Puzzle {} likely anagram for individual puzzles are {}".format(row.id, [''.join(val) for val in row.likely_anagram]))
-
+        print("   >>>>> RESULT: for Puzzle {} likely anagram for individual puzzles are {} and likely final phrase(s) are {}".format(row.id, [''.join(val) for val in row.likely_anagram], row.likely_final_phrases))
 
     #puzzle_df.show(truncate=False)
 
-
     #Terminate spark session
     spark.stop()
+    
