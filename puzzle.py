@@ -100,7 +100,7 @@ def find_likely_anagram(jumbled_word, word_freq_dict=word_freq):
         return all_anagrams
     elif len(all_anagrams)>1:
         freq_dict_subset = {k: word_freq_dict[k] for k in all_anagrams}
-        #dictionary containing word frequencies greater than zero
+        #Dictionary containing word frequencies greater than zero
         freq_dict_subset_gt0= {key:val for key,val in freq_dict_subset.items() if val>0}
         #Get minimum frequency key from non empty dictionary
         if freq_dict_subset_gt0:
@@ -121,14 +121,13 @@ def find_phrase(jumbled_word, phrase_word_length, threshold_freq=threshold_freq,
     """
     
     list_of_phrases = []
-    jumbled_word_str = jumbled_word[0]
     #Loop through each phrase word length
     for i in phrase_word_length:
         
         perm_list = []
         #Generate word permutations of only lengths as that of phrase word
         #Set operator drops any duplicates that occur with the same letter being interchangbly in different positions
-        for word in set(itertools.permutations(jumbled_word_str,i)):
+        for word in set(itertools.permutations(jumbled_word,i)):
             #List of all permutations
             perm_list.append(''.join(word))
             
@@ -146,6 +145,7 @@ def find_phrase(jumbled_word, phrase_word_length, threshold_freq=threshold_freq,
             #If no matching words were returned within the threshold, raise the threshold frequency and continue till match found
             if len(word_phrase_by_length) == 0:
                 threshold_freq+= 1000
+                print("Raising threshold frequency value to ", threshold_freq)
            
         #Create a list of phrase word lists
         list_of_phrases.append(word_phrase_by_length) 
@@ -156,7 +156,7 @@ def find_phrase(jumbled_word, phrase_word_length, threshold_freq=threshold_freq,
     #Retain phrases whose letter map matches to the original jumbled phrase word
     final_phrase_list = []
     for w in phrase_list_combo:
-        if get_letter_counter(w, removechar='-')==get_letter_counter(jumbled_word_str):
+        if get_letter_counter(w, removechar='-')==get_letter_counter(jumbled_word):
             final_phrase_list.append(w)
 
     result = find_likely_phrase(final_phrase_list, word_freq_dict)
@@ -222,7 +222,7 @@ if __name__=="__main__":
     #Get likely final phrase(s)
     likely_phrase = f.udf(find_phrase, t.ArrayType(t.StringType()))
     puzzle_df = puzzle_df.select('*' \
-                                 ,likely_phrase(f.col('final_phrase_jumbled_letters') \
+                                 ,likely_phrase(f.col('final_phrase_jumbled_letters')[0] \
                                                  ,f.col('final_word_letters') \
                                                  ).alias('likely_final_phrases'))
 
